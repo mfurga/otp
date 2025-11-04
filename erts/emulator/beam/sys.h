@@ -21,6 +21,19 @@
 #ifndef __SYS_H__
 #define __SYS_H__
 
+#ifdef __EMSCRIPTEN__
+#include <string.h>
+
+static inline void *memrchr(const void *s, int c, size_t n) {
+    const unsigned char *p = (const unsigned char *)s + n;
+    while (p != (const unsigned char *)s) {
+        if (*--p == (unsigned char)c)
+            return (void *)p;
+    }
+    return NULL;
+}
+#endif
+
 #define ERTS_SUPPORT_OLD_RECV_MARK_INSTRS
 
 #if !defined(__GNUC__) || defined(__e2k__)

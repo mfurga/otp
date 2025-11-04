@@ -36,7 +36,14 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/param.h>
-#endif 
+#endif
+
+#ifdef __EMSCRIPTEN__
+struct hostent *gethostbyname(const char *name) {
+    h_errno = HOST_NOT_FOUND;
+    return NULL;
+}
+#endif
 
 /* common to all platforms */
 #include "eidef.h"
@@ -55,6 +62,8 @@
 #if defined(_AIX) || defined(__NetBSD__) || (defined(__ANDROID__) && (__ANDROID_API__ < 23))
 #undef HAVE_GETHOSTBYNAME_R
 #endif
+
+#undef HAVE_GETHOSTBYNAME_R
 
 #ifdef HAVE_GETHOSTBYNAME_R
 
