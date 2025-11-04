@@ -32,6 +32,24 @@
 #include <sys/mman.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+#include <string.h>
+#include <stdlib.h>
+
+#ifndef MREMAP_MAYMOVE
+#define MREMAP_MAYMOVE 1
+#endif
+
+static inline void *mremap(void *old_address, size_t old_size, size_t new_size, int flags) {
+    void *new_address = malloc(new_size);
+    if (!new_address)
+        return (void *)-1;
+    memcpy(new_address, old_address, old_size < new_size ? old_size : new_size);
+    free(old_address);
+    return new_address;
+}
+#endif
+
 int erts_mem_guard(void *p, UWord size) {
 #if defined(WIN32)
     DWORD oldProtect;

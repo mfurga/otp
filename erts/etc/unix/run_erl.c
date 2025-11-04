@@ -111,6 +111,18 @@
 
 #define noDEBUG
 
+#ifdef __EMSCRIPTEN__
+#include <stdarg.h>
+#include <stdio.h>
+
+static inline void vsyslog(int priority, const char *format, va_list args) {
+    fprintf(stderr, "vsyslog[%d]: ", priority);
+    vfprintf(stderr, format, args);
+    fputc('\n', stderr);
+}
+#endif
+
+
 #define DEFAULT_LOG_GENERATIONS 5
 #define LOG_MAX_GENERATIONS     1000      /* No more than 1000 log files */
 #define LOG_MIN_GENERATIONS     2         /* At least two to switch between */

@@ -24,6 +24,10 @@
 
 #define ERTS_DO_INCL_GLB_INLINE_FUNC_DEF
 
+#ifdef __EMSCRIPTEN__
+#define mallopt(opt, value) (0)
+#endif
+
 #include "sys.h"
 #include "erl_vm.h"
 #include "global.h"
