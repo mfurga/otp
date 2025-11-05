@@ -18,7 +18,7 @@ export AR="emar"
 # export ac_cv_prog_cc_cross=yes
 # export ac_cv_c_compiler_gnu=yes
 
-export CFLAGS="-O2 -g -pthread -s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=8 -s ENVIRONMENT=node -s EXPORT_ES6=1 -s MODULARIZE=1"
+export CFLAGS="-O2 -g -pthread -s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=1 -s ENVIRONMENT=node -s EXPORT_ES6=1 -s INITIAL_MEMORY=512MB -s MAXIMUM_MEMORY=2GB -s ALLOW_MEMORY_GROWTH=1"
 export LDFLAGS="$CFLAGS"
 
 export ac_cv_func_pthread_create=yes
@@ -29,6 +29,7 @@ export ac_cv_sizeof_int=4
 export ac_cv_sizeof_long=4
 export ac_cv_sizeof_long_long=8
 export ac_cv_sizeof___int128_t=16
+export ac_cv_sizeof_void_p=4
 export ac_cv_c_bigendian=no
 
 export ac_cv_have_32bit_atomic=yes
