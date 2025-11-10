@@ -1,25 +1,26 @@
 #!/bin/bash
 
-# export EMCC_CFLAGS="-pthread -s USE_PTHREADS=1"
-# export CFLAGS="$EMCC_CFLAGS"
-# export LDFLAGS="$EMCC_CFLAGS"
-# -s ERROR_ON_WASM_CHANGES_AFTER_LINK=0
+export CC=emcc
+export LD=emcc
+export CXX=em++
+export AR=emar
 
-export CC="emcc"
-export LD="emcc"
-export CXX="em++"
-export AR="emar"
-
-# export CC=wasicc
-# export AR=wasiar
-# export RANLIB=wasiranlib
-# export LD=wasild
-# export ac_cv_prog_cc_works=yes
-# export ac_cv_prog_cc_cross=yes
-# export ac_cv_c_compiler_gnu=yes
-
-export CFLAGS="-O2 -g -pthread -s USE_PTHREADS=1 -s PTHREAD_POOL_SIZE=1 -s ENVIRONMENT=node -s EXPORT_ES6=1 -s INITIAL_MEMORY=512MB -s MAXIMUM_MEMORY=2GB -s ALLOW_MEMORY_GROWTH=1"
-export LDFLAGS="$CFLAGS"
+export CFLAGS="
+    -O2
+    -g
+    -pthread
+    -s USE_PTHREADS=1
+    -s PTHREAD_POOL_SIZE=16
+    -s ENVIRONMENT=node
+    -s EXPORT_ES6=1
+    -s INITIAL_MEMORY=512MB
+    -s MAXIMUM_MEMORY=2GB
+    -s ALLOW_MEMORY_GROWTH=1
+    -s ASSERTIONS=2
+    -s EXPORTED_RUNTIME_METHODS=ENV,FS,TTY
+    -s FORCE_FILESYSTEM=1
+"
+export LDFLAGS=$CFLAGS
 
 export ac_cv_func_pthread_create=yes
 export ac_cv_header_pthread_h=yes
@@ -61,4 +62,8 @@ emconfigure ./configure \
   --without-typer \
   --without-wx \
   --without-termcap \
-  --without-reltool
+  --without-reltool \
+  --without-inets \
+  --without-ssl \
+  --without-ssh \
+  --without-sctp
