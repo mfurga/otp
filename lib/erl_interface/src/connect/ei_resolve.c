@@ -39,20 +39,11 @@
 #endif
 
 #ifdef __EMSCRIPTEN__
-#define GETHOSTBYNAME_R(name, hostp, buffer, buflen, result, h_errnop) \
-  gethostbyname_r((name), (hostp), (buffer), (buflen), (h_errnop))
-
-#define GETHOSTBYADDR_R(addr, length, type, hostp, buffer, buflen, result, h_errnop) \
-  gethostbyaddr_r((addr), (length), (type), (hostp), (buffer), (buflen), (h_errnop))
-#else
-#define GETHOSTBYNAME_R(name, hostp, buffer, buflen, result, h_errnop) \
-  gethostbyname_r((name), (hostp), (buffer), (buflen), (result), (h_errnop))
-
-#define GETHOSTBYADDR_R(addr, length, type, hostp, buffer, buflen, result, h_errnop) \
-  gethostbyaddr_r((addr), (length), (type), (hostp), (buffer), (buflen), (result), (h_errnop))
+struct hostent *gethostbyname(const char *name) {
+    h_errno = HOST_NOT_FOUND;
+    return NULL;
+}
 #endif
-
-
 
 /* common to all platforms */
 #include "eidef.h"

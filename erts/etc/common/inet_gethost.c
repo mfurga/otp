@@ -202,13 +202,17 @@ typedef unsigned char AddrByte; /* Must be compatible with character
  * for when all subrocesses are busy.
  */
 
+#ifdef __EMSCRIPTEN__
 struct hostent *gethostbyname(const char *name) {
+    h_errno = HOST_NOT_FOUND;
     return NULL;
 }
 
 struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type) {
+    h_errno = HOST_NOT_FOUND;
     return NULL;
 }
+#endif
 
 typedef struct QueItem {
     struct QueItem *next;
