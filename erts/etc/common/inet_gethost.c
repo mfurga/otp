@@ -202,6 +202,14 @@ typedef unsigned char AddrByte; /* Must be compatible with character
  * for when all subrocesses are busy.
  */
 
+struct hostent *gethostbyname(const char *name) {
+    return NULL;
+}
+
+struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type) {
+    return NULL;
+}
+
 typedef struct QueItem {
     struct QueItem *next;
     int req_size;
