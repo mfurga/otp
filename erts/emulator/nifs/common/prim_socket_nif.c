@@ -1901,7 +1901,9 @@ static int on_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info);
 #if HAVE_IN6
 #  if ! defined(HAVE_IN6ADDR_ANY) || ! HAVE_IN6ADDR_ANY
 #    if HAVE_DECL_IN6ADDR_ANY_INIT
+#ifndef __EMSCRIPTEN__
 static const struct in6_addr in6addr_any = { { IN6ADDR_ANY_INIT } };
+#endif
 #    else
 static const struct in6_addr in6addr_any =
     { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 } } };
@@ -1910,8 +1912,10 @@ static const struct in6_addr in6addr_any =
 
 #  if ! defined(HAVE_IN6ADDR_LOOPBACK) || ! HAVE_IN6ADDR_LOOPBACK
 #    if HAVE_DECL_IN6ADDR_LOOPBACK_INIT
+#ifndef __EMSCRIPTEN__
 static const struct in6_addr in6addr_loopback =
     { { IN6ADDR_LOOPBACK_INIT } };
+#endif
 #    else
 static const struct in6_addr in6addr_loopback =
     { { { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1 } } };
