@@ -9,19 +9,30 @@ export CFLAGS="
     -O2
     -g
     -pthread
+    -gsource-map
+    -DDEBUG
+    -Wno-undef
+"
+export LDFLAGS="
+    -pthread
+    -g
+    -gsource-map
+    -l websocket.js
     -s USE_PTHREADS=1
     -s PTHREAD_POOL_SIZE=16
-    -s ENVIRONMENT=node
+    -s PROXY_TO_PTHREAD
+    -s PROXY_POSIX_SOCKETS=1
+    -s WEBSOCKET_URL=ws://localhost:8000
+    -s ENVIRONMENT=web
     -s EXPORT_ES6=1
     -s INITIAL_MEMORY=512MB
     -s MAXIMUM_MEMORY=2GB
     -s ALLOW_MEMORY_GROWTH=1
-    -s ASSERTIONS=2
     -s EXPORTED_RUNTIME_METHODS=ENV,FS,TTY
     -s FORCE_FILESYSTEM=1
+    -s EMULATE_FUNCTION_POINTER_CASTS
+    -s ASSERTIONS=2
 "
-export LDFLAGS=$CFLAGS
-
 export ac_cv_func_pthread_create=yes
 export ac_cv_header_pthread_h=yes
 
@@ -62,8 +73,7 @@ emconfigure ./configure \
   --without-typer \
   --without-wx \
   --without-termcap \
-  --without-reltool \
-  --without-inets \
-  --without-ssl \
-  --without-ssh \
-  --without-sctp
+  --without-reltool
+
+#  --disable-threads \
+#  --disable-smp-support
