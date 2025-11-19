@@ -1335,6 +1335,14 @@ early_init(int *argc, char **argv) /*
     return ncpu;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <emscripten/websocket.h>
+#include <emscripten/threading.h>
+#include <emscripten/posix_socket.h>
+
+static EMSCRIPTEN_WEBSOCKET_T bridgeSocket = 0;
+#endif
 
 void
 erl_start(int argc, char **argv)
@@ -1355,6 +1363,16 @@ erl_start(int argc, char **argv)
     ErtsTimeWarpMode time_warp_mode;
     int node_tab_delete_delay = ERTS_NODE_TAB_DELAY_GC_DEFAULT;
     ErtsDbSpinCount db_spin_count = ERTS_DB_SPNCNT_NORMAL;
+
+#ifdef __EMSCRIPTEN__
+    bridgeSocket = emscripten_init_websocket_to_posix_socket_bridge("ws://localhost:8000");
+    uint16_t readyState = 0;
+    do
+    {
+        emscripten_websocket_get_ready_state(bridgeSocket, &readyState);
+        emscripten_thread_sleep(100);
+    } while (readyState == 0);
+#endif
 
     set_default_time_adj(&time_correction,
 			 &time_warp_mode);
@@ -2662,6 +2680,9 @@ erts_exit_vv(int n, int flush, const char *fmt, va_list args1, va_list args2)
 {
     system_cleanup(flush);
 
+    printf("erts_exit_vv: ");
+    vprintf(fmt, args1);
+
     if (fmt != NULL && *fmt != '\0')
 	erl_error(fmt, args2);	/* Print error message. */
 
@@ -2701,6 +2722,10 @@ __decl_noreturn void __noreturn erts_exit(int n, const char *fmt, ...)
     va_list args1, args2;
     va_start(args1, fmt);
     va_start(args2, fmt);
+
+    printf("erts_exit: ");
+    vprintf(fmt, args1);
+
     erts_exit_vv(n, 0, fmt, args1, args2);
     va_end(args2);
     va_end(args1);
@@ -2716,6 +2741,10 @@ __decl_noreturn void __noreturn erts_flush_exit(int n, char *fmt, ...)
     va_list args1, args2;
     va_start(args1, fmt);
     va_start(args2, fmt);
+
+    printf("erts_flush_exit: ");
+    vprintf(fmt, args1);
+
     erts_exit_vv(n, 1, fmt, args1, args2);
     va_end(args2);
     va_end(args1);
