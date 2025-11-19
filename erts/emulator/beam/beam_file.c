@@ -940,6 +940,8 @@ beamfile_read(const byte *data, size_t size, BeamFile *beam) {
 
     enum beamfile_read_result error;
 
+    printf("beamfile_read: %lu\n", (unsigned long)size);
+
     /* MSVC doesn't like the use of NUM_CHUNKS here */
     IFF_Chunk chunks[sizeof(chunk_iffs) / sizeof(chunk_iffs[0])];
 

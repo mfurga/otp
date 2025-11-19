@@ -259,6 +259,8 @@ init_emulator(void)
 ERTS_NO_RETPOLINE
 void process_main(ErtsSchedulerData *esdp)
 {
+    printf("process_main started\n");
+
     static int init_done = 0;
     Process* c_p = NULL;
     int reds_used;

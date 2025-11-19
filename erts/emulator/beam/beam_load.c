@@ -123,6 +123,13 @@ Eterm
 erts_prepare_loading(Binary* magic, Process *c_p, Eterm group_leader,
                      Eterm* modp, byte* code, Uint unloaded_size)
 {
+    printf("erts_prepare_loading: start\n");
+    printf("Code size: %lu\n", (unsigned long)unloaded_size);
+    // for (size_t i = 0; i < unloaded_size; i++) {
+    //     printf("%02X ", code[i]);
+    // }
+    // printf("\n");
+
     enum beamfile_read_result read_result;
     Eterm retval = am_badfile;
     LoaderState* stp;

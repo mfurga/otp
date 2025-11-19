@@ -73,9 +73,13 @@ int erts_sys_explicit_8bit_getenv(char *key, char *value, size_t *size) {
     env_value.data = value;
 
     {
+        printf("erts_sys_explicit_8bit_getenv 1\n");
         const erts_osenv_t *env = erts_sys_rlock_global_osenv();
+        printf("erts_sys_explicit_8bit_getenv 2\n");
         result = erts_osenv_get_native(env, &env_key, &env_value);
+        printf("erts_sys_explicit_8bit_getenv 3\n");
         erts_sys_runlock_global_osenv();
+        printf("erts_sys_explicit_8bit_getenv 4\n");
     }
 
     if(result == 1) {
@@ -83,6 +87,8 @@ int erts_sys_explicit_8bit_getenv(char *key, char *value, size_t *size) {
     }
 
     *size = env_value.length;
+
+    printf("erts_sys_explicit_8bit_getenv DONE\n");
 
     return result;
 }

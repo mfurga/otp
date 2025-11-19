@@ -511,6 +511,9 @@ erts_save_suspend_process_on_port(Port *prt, Process *process)
     return saved;
 }
 
+#include <dlfcn.h>
+
+
 /*
    Opens a driver.
    Returns the non-negative port number, if successful.
@@ -547,6 +550,9 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
     int cprt_flgs = 0;
 
     ERTS_CHK_NO_PROC_LOCKS;
+
+    printf("%p\n", driver->start);
+    printf("erts_open_driver 1\n");
 
     erts_rwmtx_rlock(&erts_driver_list_lock);
     if (!driver) {
@@ -604,6 +610,8 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 	}
     }
 
+    printf("erts_open_driver 2\n");
+
     if (driver == NULL || (driver != &spawn_driver && opts->exit_status)) {
 	erts_rwmtx_runlock(&erts_driver_list_lock);
 	ERTS_OPEN_DRIVER_RET(NULL, -3, BADARG);
@@ -629,6 +637,8 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 	erts_ddll_reference_driver(driver->handle);
     }
     erts_rwmtx_runlock(&erts_driver_list_lock);
+
+    printf("erts_open_driver 3\n");
 
     /*
      * We'll set up the port before calling the start function,
@@ -666,8 +676,11 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
                                  &opts->low_msgq_watermark,
                                  &opts->high_msgq_watermark);
 
+    printf("erts_open_driver 4\n");
+
     error_number = error_type = 0;
     if (driver->start) {
+        printf("driver has start\n");
         ERTS_MSACC_PUSH_STATE_M();
 	if (IS_TRACED_FL(port, F_TRACE_SCHED_PORTS)) {
 	    trace_sched_ports_where(port, am_in, am_open);
@@ -682,6 +695,8 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 
 	ERTS_MSACC_SET_STATE_CACHED_M(ERTS_MSACC_STATE_PORT);
 
+        printf("erts_open_driver 4.a\n");
+
 #ifdef USE_LTTNG_VM_TRACEPOINTS
         if (LTTNG_ENABLED(driver_start)) {
             lttng_decl_portbuf(port_str);
@@ -692,7 +707,10 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
         }
 #endif
 
-	drv_data = (*driver->start)(ERTS_Port2ErlDrvPort(port), name, opts);
+        printf("erts_open_driver 4.b: %p\n", driver->start);
+        drv_data = (*driver->start)(ERTS_Port2ErlDrvPort(port), name, opts);
+        printf("erts_open_driver 4.bb\n");
+
 	if (((SWord) drv_data) == -1)
 	    error_type = -1;
 	else if (((SWord) drv_data) == -2) {
@@ -709,6 +727,8 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 	    error_number = BADARG;
 	}
 
+        printf("erts_open_driver 4.c\n");
+
 	ERTS_MSACC_POP_STATE_M();
 	port->caller = NIL;
 	if (IS_TRACED_FL(port, F_TRACE_SCHED_PORTS)) {
@@ -719,7 +739,11 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 	ASSERT(!port->xports);
     }
 
+    printf("erts_open_driver 5\n");
+
     if (error_type) {
+        printf("erts_open_driver error_type %d\n", error_type);
+
 	/*
 	 * Must clean up the port.
 	 */
@@ -739,6 +763,9 @@ erts_open_driver(erts_driver_t* driver,	/* Pointer to driver. */
 	erts_port_release(port);
 	ERTS_OPEN_DRIVER_RET(NULL, error_type, error_number);
     }
+
+    printf("erts_open_driver done\n");
+
     port->drv_data = (UWord) drv_data;
     ERTS_OPEN_DRIVER_RET(port, 0, 0);
 

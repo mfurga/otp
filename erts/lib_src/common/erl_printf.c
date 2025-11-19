@@ -269,6 +269,9 @@ erts_fprintf(FILE *filep, const char *format, ...)
     int res;
     va_list arglist;
     va_start(arglist, format);
+
+    vprintf(format, arglist);
+
     errno = 0;
     if (erts_printf_stdout_func && filep == stdout)
 	res = (*erts_printf_stdout_func)((char *) format, arglist);

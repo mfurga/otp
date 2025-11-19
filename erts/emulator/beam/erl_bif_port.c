@@ -62,6 +62,8 @@ BIF_RETTYPE erts_internal_open_port_2(BIF_ALIST_2)
     int err_type, err_num;
     ErtsLink *proc_lnk, *port_lnk;
 
+    printf("erts_internal_open_port_2 1\n");
+
     port = open_port(BIF_P, BIF_ARG_1, BIF_ARG_2, &err_type, &err_num);
     if (!port) {
 	if (err_type == -4) {
@@ -122,6 +124,7 @@ BIF_RETTYPE erts_internal_open_port_2(BIF_ALIST_2)
 
     erts_port_release(port);
 
+    printf("erts_internal_open_port_2 2\n");
     return ret;
 }
 
@@ -1125,6 +1128,8 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
     erts_proc_unlock(p, ERTS_PROC_LOCK_MAIN);
 
     port = erts_open_driver(driver, p->common.id, name_buf, &opts, err_typep, err_nump);
+
+    printf("open_port: 1\n");
 #ifdef USE_VM_PROBES
     if (port && DTRACE_ENABLED(port_open)) {
         DTRACE_CHARBUF(process_str, DTRACE_TERM_BUF_SIZE);
@@ -1140,6 +1145,8 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
         trace_port(port, am_getting_linked, p->common.id);
 
     erts_proc_lock(p, ERTS_PROC_LOCK_MAIN);
+
+    printf("open_port: 2\n");
 
     if (IS_TRACED_FL(p, F_TRACE_SCHED_PROCS)) {
         trace_sched(p, ERTS_PROC_LOCK_MAIN, am_in);
@@ -1160,6 +1167,8 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
     if (sflgs)
 	erts_atomic32_read_bor_relb(&port->state, sflgs);
  
+    printf("open_port: 3\n");
+
  do_return:
     erts_osenv_clear(&opts.envir);
     if (name_buf)
@@ -1170,6 +1179,7 @@ open_port(Process* p, Eterm name, Eterm settings, int *err_typep, int *err_nump)
     if (opts.wd && opts.wd != ((char *)dir)) {
 	erts_free(ERTS_ALC_T_TMP, (void *) opts.wd);
     }
+    printf("open_port: 4\n");
     return port;
 
  bad_settings:

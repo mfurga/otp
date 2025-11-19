@@ -185,9 +185,13 @@ erl_sys_late_init(void)
     opts.argv = NULL;
     opts.parallelism = erts_port_parallelism;
 
+    printf("erl_sys_late_init 1\n");
+
     port =
         erts_open_driver(&forker_driver, make_internal_pid(0), "forker", &opts, NULL, NULL);
+    printf("erl_sys_late_init 2\n");
     erts_mtx_unlock(port->lock);
+    printf("erl_sys_late_init 3\n");
     erts_sys_unix_later_init(); /* Need to be called after forker has been started */
 }
 
@@ -1637,9 +1641,21 @@ void fd_ready_async(ErlDrvData drv_data,
 static int forker_fd;
 extern struct termios erl_sys_initial_tty_mode;
 
+#include <dirent.h>
+
 static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
                                SysDriverOpts* opts)
 {
+
+    printf("forker_start called (%s)\n", name);
+
+
+    DIR *dir = opendir("/");
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        printf("%s\n", entry->d_name);
+    }
+    closedir(dir);
 
     int i;
     int fds[2];
@@ -1651,12 +1667,18 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
 
     forker_port = erts_drvport2id(port_num);
 
+    printf("forker_start 1\n");
+
     res = erts_sys_explicit_8bit_getenv("BINDIR", bindir, &bindirsz);
     if (res == 0) {
+        printf("Environment variable BINDIR not set\n");
         erts_exit(1, "Environment variable BINDIR is not set\n");
     } else if(res < 0) {
         erts_exit(1, "Value of environment variable BINDIR is too large\n");
     }
+
+    printf("forker_start 1a\n");
+
 
     if (bindir[0] != DIR_SEPARATOR_CHAR)
         erts_exit(1,
@@ -1677,6 +1699,8 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
                  "Could not open unix domain socket in spawn_init: %d\n",
                  errno);
     }
+
+    printf("forker_start 2\n");
 
     forker_fd = fds[0];
 
@@ -1712,11 +1736,15 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
         _exit(1);
     }
 
+    printf("forker_start 3\n");
+
     erts_sched_bind_atfork_parent(unbind);
 
     erts_free(ERTS_ALC_T_CS_PROG_PATH, child_setup_prog);
 
     close(fds[1]);
+
+    printf("forker_start 4\n");
 
     /* If stdin is a tty then we need to restore its settings when we exit.
        So we send the tty mode to erl_child_setup so that it can cleanup
@@ -1741,6 +1769,8 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
     }
 
     SET_NONBLOCKING(forker_fd);
+
+    printf("forker_start 5\n");
 
     return (ErlDrvData)port_num;
 }
@@ -1853,6 +1883,7 @@ static void forker_ready_output(ErlDrvData e, ErlDrvEvent fd)
 static ErlDrvSSizeT forker_control(ErlDrvData e, unsigned int cmd, char *buf,
                                    ErlDrvSizeT len, char **rbuf, ErlDrvSizeT rlen)
 {
+    printf("forker_control called\n");
     static int first_call = 1;
     ErtsSysForkerProto *proto = (ErtsSysForkerProto *)buf;
     ErlDrvPort port_num = (ErlDrvPort)e;

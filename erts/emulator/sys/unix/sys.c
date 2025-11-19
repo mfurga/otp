@@ -982,12 +982,14 @@ static erts_tid_t sig_dispatcher_tid;
 static void
 smp_sig_notify(int signum)
 {
+    printf("smp_sig_notify: signum=%d\n", signum);
     int res;
     do {
 	/* write() is async-signal safe (according to posix) */
 	res = write(sig_notify_fds[1], &signum, sizeof(int));
     } while (res < 0 && errno == EINTR);
     if (res != sizeof(int)) {
+        printf("smp_sig_notify: write failed res=%d, errno=%d\n", res, errno);
 	char msg[] =
 	    "smp_sig_notify(): Failed to notify signal-dispatcher thread "
 	    "about received signal";
@@ -1002,6 +1004,9 @@ signal_dispatcher_thread_func(void *unused)
 #ifdef ERTS_ENABLE_LOCK_CHECK
     erts_lc_set_thread_name("signal_dispatcher");
 #endif
+
+    printf("signal_dispatcher_thread_func started\n");
+
     while (1) {
         union {int signum; char buf[4];} sb;
         Eterm signal;
@@ -1011,7 +1016,9 @@ signal_dispatcher_thread_func(void *unused)
         do {
             res = read(sig_notify_fds[0], (void *) &sb.buf[i], sizeof(int) - i);
             i += res > 0 ? res : 0;
-        } while ((i < sizeof(int) && res >= 0) || (res < 0 && errno == EINTR));
+        } while ((i < sizeof(int) && res >= 0) || (res < 0 && errno == EINTR) || (res < 0 && errno == EAGAIN));
+
+        //printf("signal_dispatcher_thread_func: got signal %d\n", sb.signum);
 
 	if (res < 0) {
 	    erts_exit(ERTS_ABORT_EXIT,
@@ -1070,11 +1077,15 @@ init_smp_sig_notify(void)
 		 errno);
     }
 
+    printf("starting signal dispatcher thread\n");
+
     /* Start signal handler thread */
     erts_thr_create(&sig_dispatcher_tid,
 			signal_dispatcher_thread_func,
 			NULL,
 			&thr_opts);
+
+    printf("signal dispatcher thread started\n");
 }
 
 static void
@@ -1106,6 +1117,8 @@ static void initialize_darwin_main_thread_pipes(void)
 void
 erts_sys_main_thread(void)
 {
+    printf("erts_sys_main_thread started\n");
+
 #ifdef __DARWIN__
     initialize_darwin_main_thread_pipes();
 #else
@@ -1152,15 +1165,17 @@ erts_sys_main_thread(void)
 #endif /* #ifdef __DARWIN__ */
 
     while (1) {
-#ifdef DEBUG
-	int res =
-#else
-	(void)
-#endif
-	    select(0, NULL, NULL, NULL, NULL);
-	ASSERT(res < 0);
-	ASSERT(errno == EINTR);
-    }
+// #ifdef DEBUG
+// 	int res =
+// #else
+// 	(void)
+// #endif
+// 	    select(0, NULL, NULL, NULL, NULL);
+
+//         printf("erts_sys_main_thread: after select res=%d errno=%d\n", res, errno);
+// 	ASSERT(res < 0);
+// 	ASSERT(errno == EINTR);
+     }
 }
 
 void
