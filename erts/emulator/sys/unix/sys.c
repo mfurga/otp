@@ -37,6 +37,10 @@
 #include <sys/utsname.h>
 #include <sys/select.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/threading.h>
+#endif
+
 #ifdef ISC32
 #include <sys/bsdtypes.h>
 #endif
@@ -1011,7 +1015,14 @@ signal_dispatcher_thread_func(void *unused)
         do {
             res = read(sig_notify_fds[0], (void *) &sb.buf[i], sizeof(int) - i);
             i += res > 0 ? res : 0;
-        } while ((i < sizeof(int) && res >= 0) || (res < 0 && errno == EINTR));
+#ifdef __EMSCRIPTEN__
+            if (res < 0 && errno == EAGAIN) {
+                /* No blocking read in wasm threads; yield to avoid busy spin. */
+                emscripten_thread_sleep(1);
+            }
+#endif
+        } while ((i < sizeof(int) && res >= 0)
+                 || (res < 0 && (errno == EINTR || errno == EAGAIN)));
 
 	if (res < 0) {
 	    erts_exit(ERTS_ABORT_EXIT,
@@ -1151,6 +1162,12 @@ erts_sys_main_thread(void)
        Most probably erts has closed this pipe and is about to exit. */
 #endif /* #ifdef __DARWIN__ */
 
+#ifdef __EMSCRIPTEN__
+    while (1) {
+        /* No POSIX signals in wasm; just yield to keep the thread alive. */
+        emscripten_thread_sleep(1000);
+    }
+#else
     while (1) {
 #ifdef DEBUG
 	int res =
@@ -1161,6 +1178,7 @@ erts_sys_main_thread(void)
 	ASSERT(res < 0);
 	ASSERT(errno == EINTR);
     }
+#endif
 }
 
 void

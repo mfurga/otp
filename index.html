@@ -10,11 +10,10 @@
             '-root', '/',
             '-bindir', '/arch/bin',
             '-progname', 'erl',
-            '--',
+            '-boot', 'start',
             '-noshell',
-            '-pa', '.',
-            '-s', 'hello', 'start',
-            '-s', 'init', 'stop'
+            '-noinput',
+            '-eval', 'io:format("~p~n", [2+4]), init:stop().'
         ],
 
         preRun: (mod) => {

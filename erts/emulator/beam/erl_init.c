@@ -1337,11 +1337,12 @@ early_init(int *argc, char **argv) /*
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-#include <emscripten/websocket.h>
 #include <emscripten/threading.h>
+#ifdef ERTS_EMSCRIPTEN_WEBSOCKETS
+#include <emscripten/websocket.h>
 #include <emscripten/posix_socket.h>
-
 static EMSCRIPTEN_WEBSOCKET_T bridgeSocket = 0;
+#endif
 #endif
 
 void
@@ -1364,7 +1365,7 @@ erl_start(int argc, char **argv)
     int node_tab_delete_delay = ERTS_NODE_TAB_DELAY_GC_DEFAULT;
     ErtsDbSpinCount db_spin_count = ERTS_DB_SPNCNT_NORMAL;
 
-#ifdef __EMSCRIPTEN__
+#if defined(__EMSCRIPTEN__) && defined(ERTS_EMSCRIPTEN_WEBSOCKETS)
     bridgeSocket = emscripten_init_websocket_to_posix_socket_bridge("ws://localhost:8000");
     uint16_t readyState = 0;
     do

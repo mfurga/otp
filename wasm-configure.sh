@@ -17,13 +17,10 @@ export LDFLAGS="
     -pthread
     -g
     -gsource-map
-    -l websocket.js
     -s USE_PTHREADS=1
     -s PTHREAD_POOL_SIZE=16
     -s PROXY_TO_PTHREAD
-    -s PROXY_POSIX_SOCKETS=1
-    -s WEBSOCKET_URL=ws://localhost:8000
-    -s ENVIRONMENT=web
+    -s ENVIRONMENT=web,worker
     -s EXPORT_ES6=1
     -s INITIAL_MEMORY=512MB
     -s MAXIMUM_MEMORY=2GB
@@ -32,6 +29,7 @@ export LDFLAGS="
     -s FORCE_FILESYSTEM=1
     -s EMULATE_FUNCTION_POINTER_CASTS
     -s ASSERTIONS=2
+    -s EXIT_RUNTIME=1
 "
 export ac_cv_func_pthread_create=yes
 export ac_cv_header_pthread_h=yes

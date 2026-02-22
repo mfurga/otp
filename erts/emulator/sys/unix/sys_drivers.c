@@ -168,7 +168,9 @@ void
 erl_sys_late_init(void)
 {
     SysDriverOpts opts = {0};
+#ifndef __EMSCRIPTEN__
     Port *port;
+#endif
 
     sys_signal(SIGPIPE, SIG_IGN); /* Ignore - we'll handle the write failure */
 
@@ -185,9 +187,15 @@ erl_sys_late_init(void)
     opts.argv = NULL;
     opts.parallelism = erts_port_parallelism;
 
+    /*
+     * The forker driver relies on fork/exec and unix domain sockets, which
+     * are not available under Emscripten/WASM.
+     */
+#ifndef __EMSCRIPTEN__
     port =
         erts_open_driver(&forker_driver, make_internal_pid(0), "forker", &opts, NULL, NULL);
     erts_mtx_unlock(port->lock);
+#endif
     erts_sys_unix_later_init(); /* Need to be called after forker has been started */
 }
 
@@ -502,6 +510,10 @@ static ErlDrvData spawn_start(ErlDrvPort port_num, char* name,
 {
 #define CMD_LINE_PREFIX_STR "exec "
 #define CMD_LINE_PREFIX_STR_SZ (sizeof(CMD_LINE_PREFIX_STR) - 1)
+#ifdef __EMSCRIPTEN__
+    errno = ENOTSUP;
+    return ERL_DRV_ERROR_ERRNO;
+#endif
 
     int len;
     ErtsSysDriverData *dd;
@@ -1640,6 +1652,10 @@ extern struct termios erl_sys_initial_tty_mode;
 static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
                                SysDriverOpts* opts)
 {
+#ifdef __EMSCRIPTEN__
+    errno = ENOTSUP;
+    return ERL_DRV_ERROR_ERRNO;
+#endif
 
     int i;
     int fds[2];

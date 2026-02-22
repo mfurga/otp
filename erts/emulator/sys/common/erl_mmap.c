@@ -1321,7 +1321,18 @@ os_munmap(void *ptr, UWord size)
     int res =
 #endif
 	munmap(ptr, size);
+#ifdef __EMSCRIPTEN__
+    /*
+     * Emscripten's munmap can fail for anonymous/character-device backed
+     * mappings (e.g. /dev/zero). We can't reclaim memory anyway, so
+     * ignore failures to avoid aborting debug builds.
+     */
+#ifdef ERTS_MMAP_DEBUG
+    (void) res;
+#endif
+#else
     ERTS_MMAP_ASSERT(res == 0);
+#endif
 #elif HAVE_VIRTUALALLOC
 #ifdef DEBUG
     BOOL res =
