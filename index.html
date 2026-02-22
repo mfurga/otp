@@ -1,94 +1,285 @@
-<script type="module">
-    import Module from './beam.emu.js';
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>OTP WASM Eval</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #151922;
+      --text: #e6e6e6;
+      --muted: #9aa0a6;
+      --accent: #5cd6c0;
+      --border: #2a2f3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background: var(--bg);
+      color: var(--text);
+    }
+    #app {
+      max-width: 900px;
+      margin: 32px auto;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 12px 0;
+      color: var(--accent);
+    }
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0;
+    }
+    button {
+      background: var(--accent);
+      color: #0b0e12;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    pre {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 120px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>OTP WASM Eval</h1>
+    <textarea id="code">2+4.</textarea>
+    <div class="row">
+      <button id="run" disabled>Run</button>
+      <div class="hint">Enter an Erlang expression. Result is printed as a term.</div>
+    </div>
+    <div class="row">
+      <div class="hint">Result</div>
+    </div>
+    <pre id="result"></pre>
+    <div class="row">
+      <div class="hint">Stdout</div>
+    </div>
+    <pre id="stdout"></pre>
+    <div class="row">
+      <div class="hint">Stderr</div>
+    </div>
+    <pre id="stderr"></pre>
+  </div>
 
-    console.log('starting ...');
-    const instance = await Module({
-        print: console.log,
-        printErr: console.error,
+  <script type="module">
+    import ModuleFactory from './beam.emu.js';
+
+    const runBtn = document.getElementById('run');
+    const codeEl = document.getElementById('code');
+    const resultEl = document.getElementById('result');
+    const stdoutEl = document.getElementById('stdout');
+    const stderrEl = document.getElementById('stderr');
+
+    function setResult(text) {
+      resultEl.textContent = text;
+    }
+
+    function appendStdout(line) {
+      stdoutEl.textContent += line + '\n';
+    }
+
+    function appendStderr(line) {
+      stderrEl.textContent += line + '\n';
+    }
+
+    const BOOT_EVAL = `
+      Loop = fun F() ->
+        case file:read_file("/eval.in") of
+          {ok, Bin} ->
+            Str0 = binary_to_list(Bin),
+            Str1 = string:trim(Str0),
+            case Str1 of
+              "" -> ok;
+              _ ->
+                Str2 = case lists:last(Str1) of $. -> Str1; _ -> Str1 ++ "." end,
+                Res = (try
+                  {ok,Ts,_} = erl_scan:string(Str2),
+                  {ok,Es} = erl_parse:parse_exprs(Ts),
+                  {value, V0, _} = erl_eval:exprs(Es, []),
+                  {ok, V0}
+                catch C:R ->
+                  {error, {C,R}}
+                end),
+                Out = case Res of
+                  {ok, V1} -> io_lib:format("~p", [V1]);
+                  {error, Reason} -> io_lib:format("{error, ~p}", [Reason])
+                end,
+                file:write_file("/eval.out", [Out, 10]),
+                file:write_file("/eval.in", <<>>)
+            end;
+          _ -> ok
+        end,
+        timer:sleep(50),
+        F()
+      end,
+      file:write_file("/eval.ready", "ok"),
+      spawn(Loop),
+      timer:sleep(infinity).
+    `.replace(/\s+/g, ' ').trim();
+
+    let vm = null;
+    let vmReady = false;
+
+    async function waitForReady() {
+      const start = performance.now();
+      while (performance.now() - start < 10000) {
+        try {
+          if (vm.FS.analyzePath('/eval.ready').exists) return;
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 25));
+      }
+      throw new Error('VM did not become ready');
+    }
+
+    async function waitForOutput() {
+      const start = performance.now();
+      while (performance.now() - start < 5000) {
+        try {
+          if (vm.FS.analyzePath('/eval.out').exists) {
+            const data = vm.FS.readFile('/eval.out', { encoding: 'utf8' });
+            if (data && data.length > 0) return data;
+          }
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 25));
+      }
+      throw new Error('Timeout waiting for result');
+    }
+
+    async function bootVm() {
+      setResult('Booting VM...');
+      vm = await ModuleFactory({
+        print: (text) => appendStdout(text),
+        printErr: (text) => appendStderr(text),
         arguments: [
-            '--',
-            '-root', '/',
-            '-bindir', '/arch/bin',
-            '-progname', 'erl',
-            '-boot', 'start',
-            '-noshell',
-            '-noinput',
-            '-eval', 'io:format("~p~n", [2+4]), init:stop().'
+          '--',
+          '-root', '/',
+          '-bindir', '/arch/bin',
+          '-progname', 'erl',
+          '-boot', 'start',
+          '-noshell',
+          '-noinput',
+          '-eval', BOOT_EVAL
         ],
 
         preRun: (mod) => {
-            let { ENV, FS, TTY } = mod;
+          let { ENV, FS } = mod;
 
-            ENV.BINDIR = '/arch/bin';
+          ENV.BINDIR = '/arch/bin';
 
-            FS.init();
-            FS.mkdir('/arch');
-            FS.mkdir('/arch/bin');
+          FS.init();
+          FS.mkdir('/arch');
+          FS.mkdir('/arch/bin');
 
-            mod.addRunDependency('preload_files');
+          mod.addRunDependency('preload_files');
 
-            function ensureDirs(path) {
-                const parts = path.split('/');
-                let current = '';
-                for (let i = 0; i < parts.length - 1; i++) {
-                    if (!parts[i]) continue;
-                    current += '/' + parts[i];
-                    try {
-                        FS.lookupPath(current);
-                    } catch (e) {
-                        try {
-                            FS.mkdir(current);
-                            console.log('mkdir', current);
-                        } catch (e2) {
-                        }
-                    }
-                }
+          function ensureDirs(path) {
+            const parts = path.split('/');
+            let current = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!parts[i]) continue;
+              current += '/' + parts[i];
+              try {
+                FS.lookupPath(current);
+              } catch (e) {
+                try {
+                  FS.mkdir(current);
+                } catch (e2) {}
+              }
             }
+          }
 
-            function loadFiles(dir, files) {
-                return Promise.all(
-                    files.map(f =>
-                        fetch(`/${f}`)
-                            .then(r => r.arrayBuffer())
-                            .then(buf => {
-                                ensureDirs(`${dir}/${f}`);
-                                FS.writeFile(`${dir}/${f}`, new Uint8Array(buf));
-                                console.log(`Loaded ${f}`);
-                            })
-                            .catch(err => console.warn(`Failed to load ${f}:`, err))
-                    )
-                );
-            }
+          function loadFiles(dir, files) {
+            return Promise.all(
+              files.map(f =>
+                fetch(`/${f}`)
+                  .then(r => r.arrayBuffer())
+                  .then(buf => {
+                    ensureDirs(`${dir}/${f}`);
+                    FS.writeFile(`${dir}/${f}`, new Uint8Array(buf));
+                  })
+              )
+            );
+          }
 
-            Promise.all([
-                loadFiles('/', ['bin/no_dot_erlang.boot', 'bin/start.boot', 'bin/start_clean.boot', 'lib/stdlib/ebin/array.beam', 'lib/stdlib/ebin/shell_default.beam', 'lib/stdlib/ebin/epp.beam', 'lib/stdlib/ebin/peer.beam', 'lib/stdlib/ebin/unicode_util.beam', 'lib/stdlib/ebin/stdlib.appup', 'lib/stdlib/ebin/supervisor_bridge.beam', 'lib/stdlib/ebin/gen_event.beam', 'lib/stdlib/ebin/erl_eval.beam', 'lib/stdlib/ebin/random.beam', 'lib/stdlib/ebin/unicode.beam', 'lib/stdlib/ebin/beam_lib.beam', 'lib/stdlib/ebin/io_lib_pretty.beam', 'lib/stdlib/ebin/timer.beam', 'lib/stdlib/ebin/uri_string.beam', 'lib/stdlib/ebin/erl_features.beam', 'lib/stdlib/ebin/erl_scan.beam', 'lib/stdlib/ebin/proc_lib.beam', 'lib/stdlib/ebin/qlc.beam', 'lib/stdlib/ebin/proplists.beam', 'lib/stdlib/ebin/error_logger_file_h.beam', 'lib/stdlib/ebin/log_mf_h.beam', 'lib/stdlib/ebin/dict.beam', 'lib/stdlib/ebin/filelib.beam', 'lib/stdlib/ebin/erl_parse.beam', 'lib/stdlib/ebin/erl_tar.beam', 'lib/stdlib/ebin/otp_internal.beam', 'lib/stdlib/ebin/sys.beam', 'lib/stdlib/ebin/io_lib_format.beam', 'lib/stdlib/ebin/orddict.beam', 'lib/stdlib/ebin/filename.beam', 'lib/stdlib/ebin/supervisor.beam', 'lib/stdlib/ebin/gb_trees.beam', 'lib/stdlib/ebin/erl_lint.beam', 'lib/stdlib/ebin/edlin_expand.beam', 'lib/stdlib/ebin/edlin_context.beam', 'lib/stdlib/ebin/digraph_utils.beam', 'lib/stdlib/ebin/sofs.beam', 'lib/stdlib/ebin/error_logger_tty_h.beam', 'lib/stdlib/ebin/math.beam', 'lib/stdlib/ebin/dets_server.beam', 'lib/stdlib/ebin/rand.beam', 'lib/stdlib/ebin/erl_error.beam', 'lib/stdlib/ebin/edlin_key.beam', 'lib/stdlib/ebin/file_sorter.beam', 'lib/stdlib/ebin/calendar.beam', 'lib/stdlib/ebin/escript.beam', 'lib/stdlib/ebin/binary.beam', 'lib/stdlib/ebin/dets_sup.beam', 'lib/stdlib/ebin/c.beam', 'lib/stdlib/ebin/ms_transform.beam', 'lib/stdlib/ebin/erl_abstract_code.beam', 'lib/stdlib/ebin/argparse.beam', 'lib/stdlib/ebin/maps.beam', 'lib/stdlib/ebin/base64.beam', 'lib/stdlib/ebin/dets_utils.beam', 'lib/stdlib/ebin/erl_anno.beam', 'lib/stdlib/ebin/erl_posix_msg.beam', 'lib/stdlib/ebin/win32reg.beam', 'lib/stdlib/ebin/gen_fsm.beam', 'lib/stdlib/ebin/ordsets.beam', 'lib/stdlib/ebin/io_lib.beam', 'lib/stdlib/ebin/gen.beam', 'lib/stdlib/ebin/slave.beam', 'lib/stdlib/ebin/digraph.beam', 'lib/stdlib/ebin/qlc_pt.beam', 'lib/stdlib/ebin/re.beam', 'lib/stdlib/ebin/sets.beam', 'lib/stdlib/ebin/erl_internal.beam', 'lib/stdlib/ebin/lists.beam', 'lib/stdlib/ebin/ets.beam', 'lib/stdlib/ebin/gen_server.beam', 'lib/stdlib/ebin/gb_sets.beam', 'lib/stdlib/ebin/io_lib_fread.beam', 'lib/stdlib/ebin/queue.beam', 'lib/stdlib/ebin/erl_stdlib_errors.beam', 'lib/stdlib/ebin/edlin.beam', 'lib/stdlib/ebin/dets_v9.beam', 'lib/stdlib/ebin/shell_docs.beam', 'lib/stdlib/ebin/string.beam', 'lib/stdlib/ebin/zip.beam', 'lib/stdlib/ebin/eval_bits.beam', 'lib/stdlib/ebin/dets.beam', 'lib/stdlib/ebin/erl_bits.beam', 'lib/stdlib/ebin/erl_compile.beam', 'lib/stdlib/ebin/stdlib.app', 'lib/stdlib/ebin/edlin_type_suggestion.beam', 'lib/stdlib/ebin/erl_pp.beam', 'lib/stdlib/ebin/gen_statem.beam', 'lib/stdlib/ebin/shell.beam', 'lib/stdlib/ebin/erl_expand_records.beam', 'lib/stdlib/ebin/io.beam', 'lib/stdlib/ebin/pool.beam', 'lib/stdlib/include/erl_bits.hrl', 'lib/stdlib/include/assert.hrl', 'lib/stdlib/include/erl_compile.hrl', 'lib/stdlib/include/ms_transform.hrl', 'lib/stdlib/include/zip.hrl', 'lib/stdlib/include/qlc.hrl', 'lib/compiler/ebin/beam_asm.beam', 'lib/compiler/ebin/beam_z.beam', 'lib/compiler/ebin/beam_disasm.beam', 'lib/compiler/ebin/core_parse.beam', 'lib/compiler/ebin/beam_trim.beam', 'lib/compiler/ebin/beam_ssa_pp.beam', 'lib/compiler/ebin/v3_kernel_pp.beam', 'lib/compiler/ebin/beam_jump.beam', 'lib/compiler/ebin/beam_opcodes.beam', 'lib/compiler/ebin/beam_utils.beam', 'lib/compiler/ebin/cerl.beam', 'lib/compiler/ebin/sys_core_inline.beam', 'lib/compiler/ebin/sys_core_bsm.beam', 'lib/compiler/ebin/cerl_inline.beam', 'lib/compiler/ebin/cerl_clauses.beam', 'lib/compiler/ebin/sys_core_alias.beam', 'lib/compiler/ebin/beam_ssa.beam', 'lib/compiler/ebin/beam_clean.beam', 'lib/compiler/ebin/rec_env.beam', 'lib/compiler/ebin/beam_ssa_bool.beam', 'lib/compiler/ebin/beam_ssa_share.beam', 'lib/compiler/ebin/beam_ssa_pre_codegen.beam', 'lib/compiler/ebin/erl_bifs.beam', 'lib/compiler/ebin/beam_ssa_private_append.beam', 'lib/compiler/ebin/sys_core_fold_lists.beam', 'lib/compiler/ebin/v3_kernel.beam', 'lib/compiler/ebin/beam_ssa_opt.beam', 'lib/compiler/ebin/sys_core_fold.beam', 'lib/compiler/ebin/cerl_trees.beam', 'lib/compiler/ebin/core_lib.beam', 'lib/compiler/ebin/sys_pre_attributes.beam', 'lib/compiler/ebin/beam_dict.beam', 'lib/compiler/ebin/beam_kernel_to_ssa.beam', 'lib/compiler/ebin/beam_ssa_alias.beam', 'lib/compiler/ebin/beam_ssa_throw.beam', 'lib/compiler/ebin/beam_ssa_bsm.beam', 'lib/compiler/ebin/core_pp.beam', 'lib/compiler/ebin/compile.beam', 'lib/compiler/ebin/beam_block.beam', 'lib/compiler/ebin/core_lint.beam', 'lib/compiler/ebin/beam_ssa_bc_size.beam', 'lib/compiler/ebin/beam_ssa_type.beam', 'lib/compiler/ebin/compiler.app', 'lib/compiler/ebin/beam_digraph.beam', 'lib/compiler/ebin/beam_bounds.beam', 'lib/compiler/ebin/beam_validator.beam', 'lib/compiler/ebin/sys_core_prepare.beam', 'lib/compiler/ebin/beam_call_types.beam', 'lib/compiler/ebin/beam_a.beam', 'lib/compiler/ebin/beam_ssa_dead.beam', 'lib/compiler/ebin/beam_ssa_codegen.beam', 'lib/compiler/ebin/beam_ssa_check.beam', 'lib/compiler/ebin/sys_messages.beam', 'lib/compiler/ebin/core_scan.beam', 'lib/compiler/ebin/beam_ssa_lint.beam', 'lib/compiler/ebin/v3_core.beam', 'lib/compiler/ebin/beam_listing.beam', 'lib/compiler/ebin/beam_types.beam', 'lib/compiler/ebin/beam_ssa_recv.beam', 'lib/compiler/ebin/beam_flatten.beam', 'lib/compiler/ebin/compiler.appup', 'lib/kernel/ebin/logger_olp.beam', 'lib/kernel/ebin/raw_file_io_compressed.beam', 'lib/kernel/ebin/kernel.beam', 'lib/kernel/ebin/application_controller.beam', 'lib/kernel/ebin/erl_epmd.beam', 'lib/kernel/ebin/file.beam', 'lib/kernel/ebin/inet_db.beam', 'lib/kernel/ebin/gen_udp.beam', 'lib/kernel/ebin/socket.beam', 'lib/kernel/ebin/erl_compile_server.beam', 'lib/kernel/ebin/inet6_tcp.beam', 'lib/kernel/ebin/erts_debug.beam', 'lib/kernel/ebin/error_handler.beam', 'lib/kernel/ebin/inet_tcp_dist.beam', 'lib/kernel/ebin/erl_boot_server.beam', 'lib/kernel/ebin/prim_tty.beam', 'lib/kernel/ebin/raw_file_io.beam', 'lib/kernel/ebin/erl_kernel_errors.beam', 'lib/kernel/ebin/inet_dns.beam', 'lib/kernel/ebin/logger_proxy.beam', 'lib/kernel/ebin/gen_tcp_socket.beam', 'lib/kernel/ebin/disk_log.beam', 'lib/kernel/ebin/erl_distribution.beam', 'lib/kernel/ebin/inet_epmd_socket.beam', 'lib/kernel/ebin/local_tcp.beam', 'lib/kernel/ebin/error_logger.beam', 'lib/kernel/ebin/ram_file.beam', 'lib/kernel/ebin/inet6_tcp_dist.beam', 'lib/kernel/ebin/os.beam', 'lib/kernel/ebin/logger_std_h.beam', 'lib/kernel/ebin/user_drv.beam', 'lib/kernel/ebin/pg.beam', 'lib/kernel/ebin/code.beam', 'lib/kernel/ebin/inet_hosts.beam', 'lib/kernel/ebin/inet.beam', 'lib/kernel/ebin/kernel.appup', 'lib/kernel/ebin/logger_formatter.beam', 'lib/kernel/ebin/logger_simple_h.beam', 'lib/kernel/ebin/gen_sctp.beam', 'lib/kernel/ebin/pg2.beam', 'lib/kernel/ebin/disk_log_server.beam', 'lib/kernel/ebin/inet_tcp.beam', 'lib/kernel/ebin/logger_sup.beam', 'lib/kernel/ebin/inet_gethost_native.beam', 'lib/kernel/ebin/erl_reply.beam', 'lib/kernel/ebin/application.beam', 'lib/kernel/ebin/standard_error.beam', 'lib/kernel/ebin/erl_signal_handler.beam', 'lib/kernel/ebin/kernel_refc.beam', 'lib/kernel/ebin/disk_log_sup.beam', 'lib/kernel/ebin/code_server.beam', 'lib/kernel/ebin/raw_file_io_inflate.beam', 'lib/kernel/ebin/auth.beam', 'lib/kernel/ebin/seq_trace.beam', 'lib/kernel/ebin/logger_server.beam', 'lib/kernel/ebin/inet_udp.beam', 'lib/kernel/ebin/inet_sctp.beam', 'lib/kernel/ebin/logger_filters.beam', 'lib/kernel/ebin/raw_file_io_delayed.beam', 'lib/kernel/ebin/group.beam', 'lib/kernel/ebin/file_server.beam', 'lib/kernel/ebin/kernel.app', 'lib/kernel/ebin/gen_udp_socket.beam', 'lib/kernel/ebin/inet_config.beam', 'lib/kernel/ebin/inet_parse.beam', 'lib/kernel/ebin/dist_util.beam', 'lib/kernel/ebin/wrap_log_reader.beam', 'lib/kernel/ebin/net.beam', 'lib/kernel/ebin/local_udp.beam', 'lib/kernel/ebin/group_history.beam', 'lib/kernel/ebin/global_search.beam', 'lib/kernel/ebin/dist_ac.beam', 'lib/kernel/ebin/erl_erts_errors.beam', 'lib/kernel/ebin/file_io_server.beam', 'lib/kernel/ebin/raw_file_io_deflate.beam', 'lib/kernel/ebin/global_group.beam', 'lib/kernel/ebin/disk_log_1.beam', 'lib/kernel/ebin/application_master.beam', 'lib/kernel/ebin/logger_backend.beam', 'lib/kernel/ebin/net_kernel.beam', 'lib/kernel/ebin/kernel_config.beam', 'lib/kernel/ebin/erpc.beam', 'lib/kernel/ebin/inet6_sctp.beam', 'lib/kernel/ebin/user_sup.beam', 'lib/kernel/ebin/heart.beam', 'lib/kernel/ebin/raw_file_io_list.beam', 'lib/kernel/ebin/logger_config.beam', 'lib/kernel/ebin/erl_ddll.beam', 'lib/kernel/ebin/application_starter.beam', 'lib/kernel/ebin/logger_disk_log_h.beam', 'lib/kernel/ebin/global.beam', 'lib/kernel/ebin/logger_handler_watcher.beam', 'lib/kernel/ebin/inet_res.beam', 'lib/kernel/ebin/rpc.beam', 'lib/kernel/ebin/inet6_udp.beam', 'lib/kernel/ebin/net_adm.beam', 'lib/kernel/ebin/inet_epmd_dist.beam', 'lib/kernel/ebin/gen_tcp.beam', 'lib/kernel/ebin/logger_h_common.beam', 'lib/kernel/ebin/logger.beam', 'lib/kernel/include/eep48.hrl', 'lib/kernel/include/dist_util.hrl', 'lib/kernel/include/net_address.hrl', 'lib/kernel/include/inet_sctp.hrl', 'lib/kernel/include/file.hrl', 'lib/kernel/include/dist.hrl', 'lib/kernel/include/logger.hrl', 'lib/kernel/include/inet.hrl']),
-                loadFiles('/arch/bin', ['inet_gethost', 'inet_gethost.wasm', 'erl_child_setup', 'erl_child_setup.wasm'])
-            ]).then(() => {
-                console.log('ALL DONE');
-                mod.removeRunDependency('preload_files');
-            });
-
-            /*
-                -module(hello).
-                -export([start/0]).
-
-                start() ->
-                    io:fwrite("hello, world\n"),
-                    42.
-             */
-            const hello = new Uint8Array([0x46, 0x4f, 0x52, 0x31, 0x0, 0x0, 0x2, 0xc8, 0x42, 0x45, 0x41, 0x4d, 0x41, 0x74, 0x55, 0x38, 0x0, 0x0, 0x0, 0x3d, 0x0, 0x0, 0x0, 0x7, 0x5, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x5, 0x73, 0x74, 0x61, 0x72, 0x74, 0x2, 0x69, 0x6f, 0x6, 0x66, 0x77, 0x72, 0x69, 0x74, 0x65, 0xb, 0x6d, 0x6f, 0x64, 0x75, 0x6c, 0x65, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x6, 0x65, 0x72, 0x6c, 0x61, 0x6e, 0x67, 0xf, 0x67, 0x65, 0x74, 0x5f, 0x6d, 0x6f, 0x64, 0x75, 0x6c, 0x65, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x0, 0x0, 0x0, 0x43, 0x6f, 0x64, 0x65, 0x0, 0x0, 0x0, 0x55, 0x0, 0x0, 0x0, 0x10, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa9, 0x0, 0x0, 0x0, 0x7, 0x0, 0x0, 0x0, 0x3, 0x1, 0x10, 0x99, 0x10, 0x2, 0x12, 0x22, 0x0, 0x1, 0x20, 0xc, 0x0, 0x0, 0x40, 0x47, 0x0, 0x3, 0x99, 0x20, 0x7, 0x10, 0x0, 0x40, 0x9, 0x2a, 0x3, 0x12, 0x0, 0x13, 0x1, 0x30, 0x99, 0x0, 0x2, 0x12, 0x52, 0x0, 0x1, 0x40, 0x40, 0x12, 0x3, 0x4e, 0x10, 0x10, 0x1, 0x50, 0x99, 0x0, 0x2, 0x12, 0x52, 0x10, 0x1, 0x60, 0x40, 0x3, 0x13, 0x40, 0x12, 0x3, 0x4e, 0x20, 0x20, 0x3, 0x0, 0x0, 0x0, 0x53, 0x74, 0x72, 0x54, 0x0, 0x0, 0x0, 0x0, 0x49, 0x6d, 0x70, 0x54, 0x0, 0x0, 0x0, 0x28, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x7, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x7, 0x0, 0x0, 0x0, 0x2, 0x45, 0x78, 0x70, 0x54, 0x0, 0x0, 0x0, 0x28, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x5, 0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x6, 0x0, 0x0, 0x0, 0x5, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x2, 0x4c, 0x69, 0x74, 0x54, 0x0, 0x0, 0x0, 0x25, 0x0, 0x0, 0x0, 0x19, 0x78, 0x9c, 0x63, 0x60, 0x60, 0x60, 0x64, 0x60, 0x60, 0x10, 0x6c, 0xce, 0x66, 0xe0, 0xcd, 0x48, 0xcd, 0xc9, 0xc9, 0xd7, 0x51, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1, 0x2, 0x0, 0x33, 0x54, 0x5, 0xa0, 0x0, 0x0, 0x0, 0x4d, 0x65, 0x74, 0x61, 0x0, 0x0, 0x0, 0x1c, 0x83, 0x6c, 0x0, 0x0, 0x0, 0x1, 0x68, 0x2, 0x77, 0x10, 0x65, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x64, 0x5f, 0x66, 0x65, 0x61, 0x74, 0x75, 0x72, 0x65, 0x73, 0x6a, 0x6a, 0x4c, 0x6f, 0x63, 0x54, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x0, 0x41, 0x74, 0x74, 0x72, 0x0, 0x0, 0x0, 0x27, 0x83, 0x6c, 0x0, 0x0, 0x0, 0x1, 0x68, 0x2, 0x77, 0x3, 0x76, 0x73, 0x6e, 0x6c, 0x0, 0x0, 0x0, 0x1, 0x6e, 0x10, 0x0, 0xa5, 0xe3, 0xe8, 0x3, 0x90, 0x97, 0x22, 0xb3, 0x3c, 0xa9, 0xd1, 0xc4, 0x16, 0x95, 0xe1, 0xef, 0x6a, 0x6a, 0x0, 0x43, 0x49, 0x6e, 0x66, 0x0, 0x0, 0x0, 0x6d, 0x83, 0x6c, 0x0, 0x0, 0x0, 0x3, 0x68, 0x2, 0x77, 0x7, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x6b, 0x0, 0x5, 0x38, 0x2e, 0x33, 0x2e, 0x32, 0x68, 0x2, 0x77, 0x7, 0x6f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x6a, 0x68, 0x2, 0x77, 0x6, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x6b, 0x0, 0x3a, 0x2f, 0x55, 0x73, 0x65, 0x72, 0x73, 0x2f, 0x6d, 0x66, 0x2f, 0x63, 0x6f, 0x64, 0x65, 0x2f, 0x6f, 0x74, 0x70, 0x2f, 0x6f, 0x74, 0x70, 0x32, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x61, 0x61, 0x72, 0x63, 0x68, 0x36, 0x34, 0x2d, 0x61, 0x70, 0x70, 0x6c, 0x65, 0x2d, 0x64, 0x61, 0x72, 0x77, 0x69, 0x6e, 0x2f, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x2e, 0x65, 0x72, 0x6c, 0x6a, 0x0, 0x0, 0x0, 0x44, 0x62, 0x67, 0x69, 0x0, 0x0, 0x0, 0x6d, 0x83, 0x68, 0x3, 0x77, 0xd, 0x64, 0x65, 0x62, 0x75, 0x67, 0x5f, 0x69, 0x6e, 0x66, 0x6f, 0x5f, 0x76, 0x31, 0x77, 0x11, 0x65, 0x72, 0x6c, 0x5f, 0x61, 0x62, 0x73, 0x74, 0x72, 0x61, 0x63, 0x74, 0x5f, 0x63, 0x6f, 0x64, 0x65, 0x68, 0x2, 0x77, 0x4, 0x6e, 0x6f, 0x6e, 0x65, 0x6c, 0x0, 0x0, 0x0, 0x1, 0x68, 0x2, 0x77, 0x3, 0x63, 0x77, 0x64, 0x6b, 0x0, 0x30, 0x2f, 0x55, 0x73, 0x65, 0x72, 0x73, 0x2f, 0x6d, 0x66, 0x2f, 0x63, 0x6f, 0x64, 0x65, 0x2f, 0x6f, 0x74, 0x70, 0x2f, 0x6f, 0x74, 0x70, 0x32, 0x2f, 0x62, 0x69, 0x6e, 0x2f, 0x61, 0x61, 0x72, 0x63, 0x68, 0x36, 0x34, 0x2d, 0x61, 0x70, 0x70, 0x6c, 0x65, 0x2d, 0x64, 0x61, 0x72, 0x77, 0x69, 0x6e, 0x6a, 0x0, 0x0, 0x0, 0x4c, 0x69, 0x6e, 0x65, 0x0, 0x0, 0x0, 0x16, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x0, 0x41, 0x51, 0x0, 0x0, 0x54, 0x79, 0x70, 0x65, 0x0, 0x0, 0x0, 0xa, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0, 0x0, 0x1, 0x1f, 0xff, 0x0, 0x0]);
-            console.log(hello.length);
-            FS.writeFile('/hello.beam', hello);
+          Promise.all([
+            loadFiles('/', ['bin/no_dot_erlang.boot', 'bin/start.boot', 'bin/start_clean.boot', 'lib/stdlib/ebin/array.beam', 'lib/stdlib/ebin/shell_default.beam', 'lib/stdlib/ebin/epp.beam', 'lib/stdlib/ebin/peer.beam', 'lib/stdlib/ebin/unicode_util.beam', 'lib/stdlib/ebin/stdlib.appup', 'lib/stdlib/ebin/supervisor_bridge.beam', 'lib/stdlib/ebin/gen_event.beam', 'lib/stdlib/ebin/erl_eval.beam', 'lib/stdlib/ebin/random.beam', 'lib/stdlib/ebin/unicode.beam', 'lib/stdlib/ebin/beam_lib.beam', 'lib/stdlib/ebin/io_lib_pretty.beam', 'lib/stdlib/ebin/timer.beam', 'lib/stdlib/ebin/uri_string.beam', 'lib/stdlib/ebin/erl_features.beam', 'lib/stdlib/ebin/erl_scan.beam', 'lib/stdlib/ebin/proc_lib.beam', 'lib/stdlib/ebin/qlc.beam', 'lib/stdlib/ebin/proplists.beam', 'lib/stdlib/ebin/error_logger_file_h.beam', 'lib/stdlib/ebin/log_mf_h.beam', 'lib/stdlib/ebin/dict.beam', 'lib/stdlib/ebin/filelib.beam', 'lib/stdlib/ebin/erl_parse.beam', 'lib/stdlib/ebin/erl_tar.beam', 'lib/stdlib/ebin/otp_internal.beam', 'lib/stdlib/ebin/sys.beam', 'lib/stdlib/ebin/io_lib_format.beam', 'lib/stdlib/ebin/orddict.beam', 'lib/stdlib/ebin/filename.beam', 'lib/stdlib/ebin/supervisor.beam', 'lib/stdlib/ebin/gb_trees.beam', 'lib/stdlib/ebin/erl_lint.beam', 'lib/stdlib/ebin/edlin_expand.beam', 'lib/stdlib/ebin/edlin_context.beam', 'lib/stdlib/ebin/digraph_utils.beam', 'lib/stdlib/ebin/sofs.beam', 'lib/stdlib/ebin/error_logger_tty_h.beam', 'lib/stdlib/ebin/math.beam', 'lib/stdlib/ebin/dets_server.beam', 'lib/stdlib/ebin/rand.beam', 'lib/stdlib/ebin/erl_error.beam', 'lib/stdlib/ebin/edlin_key.beam', 'lib/stdlib/ebin/file_sorter.beam', 'lib/stdlib/ebin/calendar.beam', 'lib/stdlib/ebin/escript.beam', 'lib/stdlib/ebin/binary.beam', 'lib/stdlib/ebin/dets_sup.beam', 'lib/stdlib/ebin/c.beam', 'lib/stdlib/ebin/ms_transform.beam', 'lib/stdlib/ebin/erl_abstract_code.beam', 'lib/stdlib/ebin/argparse.beam', 'lib/stdlib/ebin/maps.beam', 'lib/stdlib/ebin/base64.beam', 'lib/stdlib/ebin/dets_utils.beam', 'lib/stdlib/ebin/erl_anno.beam', 'lib/stdlib/ebin/erl_posix_msg.beam', 'lib/stdlib/ebin/win32reg.beam', 'lib/stdlib/ebin/gen_fsm.beam', 'lib/stdlib/ebin/ordsets.beam', 'lib/stdlib/ebin/io_lib.beam', 'lib/stdlib/ebin/gen.beam', 'lib/stdlib/ebin/slave.beam', 'lib/stdlib/ebin/digraph.beam', 'lib/stdlib/ebin/qlc_pt.beam', 'lib/stdlib/ebin/re.beam', 'lib/stdlib/ebin/sets.beam', 'lib/stdlib/ebin/erl_internal.beam', 'lib/stdlib/ebin/lists.beam', 'lib/stdlib/ebin/ets.beam', 'lib/stdlib/ebin/gen_server.beam', 'lib/stdlib/ebin/gb_sets.beam', 'lib/stdlib/ebin/io_lib_fread.beam', 'lib/stdlib/ebin/queue.beam', 'lib/stdlib/ebin/erl_stdlib_errors.beam', 'lib/stdlib/ebin/edlin.beam', 'lib/stdlib/ebin/dets_v9.beam', 'lib/stdlib/ebin/shell_docs.beam', 'lib/stdlib/ebin/string.beam', 'lib/stdlib/ebin/zip.beam', 'lib/stdlib/ebin/eval_bits.beam', 'lib/stdlib/ebin/dets.beam', 'lib/stdlib/ebin/erl_bits.beam', 'lib/stdlib/ebin/erl_compile.beam', 'lib/stdlib/ebin/stdlib.app', 'lib/stdlib/ebin/edlin_type_suggestion.beam', 'lib/stdlib/ebin/erl_pp.beam', 'lib/stdlib/ebin/gen_statem.beam', 'lib/stdlib/ebin/shell.beam', 'lib/stdlib/ebin/erl_expand_records.beam', 'lib/stdlib/ebin/io.beam', 'lib/stdlib/ebin/pool.beam', 'lib/stdlib/include/erl_bits.hrl', 'lib/stdlib/include/assert.hrl', 'lib/stdlib/include/erl_compile.hrl', 'lib/stdlib/include/ms_transform.hrl', 'lib/stdlib/include/zip.hrl', 'lib/stdlib/include/qlc.hrl', 'lib/compiler/ebin/beam_asm.beam', 'lib/compiler/ebin/beam_z.beam', 'lib/compiler/ebin/beam_disasm.beam', 'lib/compiler/ebin/core_parse.beam', 'lib/compiler/ebin/beam_trim.beam', 'lib/compiler/ebin/beam_ssa_pp.beam', 'lib/compiler/ebin/v3_kernel_pp.beam', 'lib/compiler/ebin/beam_jump.beam', 'lib/compiler/ebin/beam_opcodes.beam', 'lib/compiler/ebin/beam_utils.beam', 'lib/compiler/ebin/cerl.beam', 'lib/compiler/ebin/sys_core_inline.beam', 'lib/compiler/ebin/sys_core_bsm.beam', 'lib/compiler/ebin/cerl_inline.beam', 'lib/compiler/ebin/cerl_clauses.beam', 'lib/compiler/ebin/sys_core_alias.beam', 'lib/compiler/ebin/beam_ssa.beam', 'lib/compiler/ebin/beam_clean.beam', 'lib/compiler/ebin/rec_env.beam', 'lib/compiler/ebin/beam_ssa_bool.beam', 'lib/compiler/ebin/beam_ssa_share.beam', 'lib/compiler/ebin/beam_ssa_pre_codegen.beam', 'lib/compiler/ebin/erl_bifs.beam', 'lib/compiler/ebin/beam_ssa_private_append.beam', 'lib/compiler/ebin/sys_core_fold_lists.beam', 'lib/compiler/ebin/v3_kernel.beam', 'lib/compiler/ebin/beam_ssa_opt.beam', 'lib/compiler/ebin/sys_core_fold.beam', 'lib/compiler/ebin/cerl_trees.beam', 'lib/compiler/ebin/core_lib.beam', 'lib/compiler/ebin/sys_pre_attributes.beam', 'lib/compiler/ebin/beam_dict.beam', 'lib/compiler/ebin/beam_kernel_to_ssa.beam', 'lib/compiler/ebin/beam_ssa_alias.beam', 'lib/compiler/ebin/beam_ssa_throw.beam', 'lib/compiler/ebin/beam_ssa_bsm.beam', 'lib/compiler/ebin/core_pp.beam', 'lib/compiler/ebin/compile.beam', 'lib/compiler/ebin/beam_block.beam', 'lib/compiler/ebin/core_lint.beam', 'lib/compiler/ebin/beam_ssa_bc_size.beam', 'lib/compiler/ebin/beam_ssa_type.beam', 'lib/compiler/ebin/compiler.app', 'lib/compiler/ebin/beam_digraph.beam', 'lib/compiler/ebin/beam_bounds.beam', 'lib/compiler/ebin/beam_validator.beam', 'lib/compiler/ebin/sys_core_prepare.beam', 'lib/compiler/ebin/beam_call_types.beam', 'lib/compiler/ebin/beam_a.beam', 'lib/compiler/ebin/beam_ssa_dead.beam', 'lib/compiler/ebin/beam_ssa_codegen.beam', 'lib/compiler/ebin/beam_ssa_check.beam', 'lib/compiler/ebin/sys_messages.beam', 'lib/compiler/ebin/core_scan.beam', 'lib/compiler/ebin/beam_ssa_lint.beam', 'lib/compiler/ebin/v3_core.beam', 'lib/compiler/ebin/beam_listing.beam', 'lib/compiler/ebin/beam_types.beam', 'lib/compiler/ebin/beam_ssa_recv.beam', 'lib/compiler/ebin/beam_flatten.beam', 'lib/compiler/ebin/compiler.appup', 'lib/kernel/ebin/logger_olp.beam', 'lib/kernel/ebin/raw_file_io_compressed.beam', 'lib/kernel/ebin/kernel.beam', 'lib/kernel/ebin/application_controller.beam', 'lib/kernel/ebin/erl_epmd.beam', 'lib/kernel/ebin/file.beam', 'lib/kernel/ebin/inet_db.beam', 'lib/kernel/ebin/gen_udp.beam', 'lib/kernel/ebin/socket.beam', 'lib/kernel/ebin/erl_compile_server.beam', 'lib/kernel/ebin/inet6_tcp.beam', 'lib/kernel/ebin/erts_debug.beam', 'lib/kernel/ebin/error_handler.beam', 'lib/kernel/ebin/inet_tcp_dist.beam', 'lib/kernel/ebin/erl_boot_server.beam', 'lib/kernel/ebin/prim_tty.beam', 'lib/kernel/ebin/raw_file_io.beam', 'lib/kernel/ebin/erl_kernel_errors.beam', 'lib/kernel/ebin/inet_dns.beam', 'lib/kernel/ebin/logger_proxy.beam', 'lib/kernel/ebin/gen_tcp_socket.beam', 'lib/kernel/ebin/disk_log.beam', 'lib/kernel/ebin/erl_distribution.beam', 'lib/kernel/ebin/inet_epmd_socket.beam', 'lib/kernel/ebin/local_tcp.beam', 'lib/kernel/ebin/error_logger.beam', 'lib/kernel/ebin/ram_file.beam', 'lib/kernel/ebin/inet6_tcp_dist.beam', 'lib/kernel/ebin/os.beam', 'lib/kernel/ebin/logger_std_h.beam', 'lib/kernel/ebin/user_drv.beam', 'lib/kernel/ebin/pg.beam', 'lib/kernel/ebin/code.beam', 'lib/kernel/ebin/inet_hosts.beam', 'lib/kernel/ebin/inet.beam', 'lib/kernel/ebin/kernel.appup', 'lib/kernel/ebin/logger_formatter.beam', 'lib/kernel/ebin/logger_simple_h.beam', 'lib/kernel/ebin/gen_sctp.beam', 'lib/kernel/ebin/pg2.beam', 'lib/kernel/ebin/disk_log_server.beam', 'lib/kernel/ebin/inet_tcp.beam', 'lib/kernel/ebin/logger_sup.beam', 'lib/kernel/ebin/inet_gethost_native.beam', 'lib/kernel/ebin/erl_reply.beam', 'lib/kernel/ebin/application.beam', 'lib/kernel/ebin/standard_error.beam', 'lib/kernel/ebin/erl_signal_handler.beam', 'lib/kernel/ebin/kernel_refc.beam', 'lib/kernel/ebin/disk_log_sup.beam', 'lib/kernel/ebin/code_server.beam', 'lib/kernel/ebin/raw_file_io_inflate.beam', 'lib/kernel/ebin/auth.beam', 'lib/kernel/ebin/seq_trace.beam', 'lib/kernel/ebin/logger_server.beam', 'lib/kernel/ebin/inet_udp.beam', 'lib/kernel/ebin/inet_sctp.beam', 'lib/kernel/ebin/logger_filters.beam', 'lib/kernel/ebin/raw_file_io_delayed.beam', 'lib/kernel/ebin/group.beam', 'lib/kernel/ebin/file_server.beam', 'lib/kernel/ebin/kernel.app', 'lib/kernel/ebin/gen_udp_socket.beam', 'lib/kernel/ebin/inet_config.beam', 'lib/kernel/ebin/inet_parse.beam', 'lib/kernel/ebin/dist_util.beam', 'lib/kernel/ebin/wrap_log_reader.beam', 'lib/kernel/ebin/net.beam', 'lib/kernel/ebin/local_udp.beam', 'lib/kernel/ebin/group_history.beam', 'lib/kernel/ebin/global_search.beam', 'lib/kernel/ebin/dist_ac.beam', 'lib/kernel/ebin/erl_erts_errors.beam', 'lib/kernel/ebin/file_io_server.beam', 'lib/kernel/ebin/raw_file_io_deflate.beam', 'lib/kernel/ebin/global_group.beam', 'lib/kernel/ebin/disk_log_1.beam', 'lib/kernel/ebin/application_master.beam', 'lib/kernel/ebin/logger_backend.beam', 'lib/kernel/ebin/net_kernel.beam', 'lib/kernel/ebin/kernel_config.beam', 'lib/kernel/ebin/erpc.beam', 'lib/kernel/ebin/inet6_sctp.beam', 'lib/kernel/ebin/user_sup.beam', 'lib/kernel/ebin/heart.beam', 'lib/kernel/ebin/raw_file_io_list.beam', 'lib/kernel/ebin/logger_config.beam', 'lib/kernel/ebin/erl_ddll.beam', 'lib/kernel/ebin/application_starter.beam', 'lib/kernel/ebin/logger_disk_log_h.beam', 'lib/kernel/ebin/global.beam', 'lib/kernel/ebin/logger_handler_watcher.beam', 'lib/kernel/ebin/inet_res.beam', 'lib/kernel/ebin/rpc.beam', 'lib/kernel/ebin/inet6_udp.beam', 'lib/kernel/ebin/net_adm.beam', 'lib/kernel/ebin/inet_epmd_dist.beam', 'lib/kernel/ebin/gen_tcp.beam', 'lib/kernel/ebin/logger_h_common.beam', 'lib/kernel/ebin/logger.beam', 'lib/kernel/include/eep48.hrl', 'lib/kernel/include/dist_util.hrl', 'lib/kernel/include/net_address.hrl', 'lib/kernel/include/inet_sctp.hrl', 'lib/kernel/include/file.hrl', 'lib/kernel/include/dist.hrl', 'lib/kernel/include/logger.hrl', 'lib/kernel/include/inet.hrl']),
+            loadFiles('/arch/bin', ['inet_gethost', 'inet_gethost.wasm', 'erl_child_setup', 'erl_child_setup.wasm'])
+          ]).then(() => {
+            mod.removeRunDependency('preload_files');
+          });
         },
 
-        onAbort: (msg) => console.error('ABORT:', msg),
-        onExit: (code) => console.log('EXIT CODE:', code),
-        noExitRuntime: false,
-        locateFile: (path) => {
-            console.log('Locating:', path);
-            return './' + path;
-        },
-    });
+        onAbort: (msg) => appendStderr('ABORT: ' + msg),
+        onExit: (code) => appendStderr('EXIT CODE: ' + code),
+        noExitRuntime: true,
+        locateFile: (path) => './' + path
+      });
 
-    console.log('done');
-</script>
+      await waitForReady();
+      vmReady = true;
+      runBtn.disabled = false;
+      setResult('VM ready.');
+    }
+
+    async function runEval() {
+      if (!vmReady) return;
+      runBtn.disabled = true;
+      setResult('Running...');
+
+      const raw = (codeEl.value || '').trim();
+      if (!raw) {
+        setResult('No input');
+        runBtn.disabled = false;
+        return;
+      }
+
+      try {
+        try { vm.FS.unlink('/eval.out'); } catch (e) {}
+        vm.FS.writeFile('/eval.in', raw, { encoding: 'utf8' });
+        const result = await waitForOutput();
+        setResult(result.trimEnd());
+      } catch (err) {
+        setResult(String(err));
+      } finally {
+        runBtn.disabled = false;
+      }
+    }
+
+    runBtn.addEventListener('click', runEval);
+    bootVm();
+  </script>
+</body>
+</html>
